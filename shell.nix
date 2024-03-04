@@ -11,13 +11,11 @@ in
     buildInputs = with pkgs; [
       rustup
       pkg-config
-      openssl.dev
-      zstd.dev
+      pipewire.dev
+      clang
     ];
 
     env = {
-      OPENSSL_DEV = pkgs.openssl.dev;
-      ZSTD_SYS_USE_PKG_CONFIG = "1";
-      OPENSSL_NO_VENDOR = "1";
+      LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
     };
   }
