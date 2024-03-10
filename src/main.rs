@@ -30,33 +30,8 @@ pub fn main() -> Result<(), pw::Error> {
         .add_local_listener_with_user_data(data)
         .process(|stream, acc| match stream.dequeue_buffer() {
             None => println!("No buffer received"),
-            Some(mut buffer) => {
-                let datas = buffer.datas_mut();
-                let stride = CHAN_SIZE * DEFAULT_CHANNELS as usize;
-                let data = &mut datas[0];
-                let n_frames = if let Some(slice) = data.data() {
-                    let n_frames = slice.len() / stride;
-                    for i in 0..n_frames {
-                        *acc += PI_2 * 440.0 / DEFAULT_RATE as f64;
-                        if *acc >= PI_2 {
-                            *acc -= PI_2
-                        }
-                        let val = (f64::sin(*acc) * DEFAULT_VOLUME * 16767.0) as i16;
-                        for c in 0..DEFAULT_CHANNELS {
-                            let start = i * stride + (c as usize * CHAN_SIZE);
-                            let end = start + CHAN_SIZE;
-                            let chan = &mut slice[start..end];
-                            chan.copy_from_slice(&i16::to_le_bytes(val));
-                        }
-                    }
-                    n_frames
-                } else {
-                    0
-                };
-                let chunk = data.chunk_mut();
-                *chunk.offset_mut() = 0;
-                *chunk.stride_mut() = stride as _;
-                *chunk.size_mut() = (stride * n_frames) as _;
+            Some(buffer) => {
+                noise(buffer, acc);
             }
         })
         .register()?;
@@ -92,4 +67,33 @@ pub fn main() -> Result<(), pw::Error> {
     mainloop.run();
 
     Ok(())
+}
+
+fn noise(mut buffer: pw::buffer::Buffer<'_>, acc: &mut f64) {
+    let datas = buffer.datas_mut();
+    let stride = CHAN_SIZE * DEFAULT_CHANNELS as usize;
+    let data = &mut datas[0];
+    let n_frames = if let Some(slice) = data.data() {
+        let n_frames = slice.len() / stride;
+        for i in 0..n_frames {
+            *acc += PI_2 * 440.0 / DEFAULT_RATE as f64;
+            if *acc >= PI_2 {
+                *acc -= PI_2
+            }
+            let val = (f64::sin(*acc) * DEFAULT_VOLUME * 16767.0) as i16;
+            for c in 0..DEFAULT_CHANNELS {
+                let start = i * stride + (c as usize * CHAN_SIZE);
+                let end = start + CHAN_SIZE;
+                let chan = &mut slice[start..end];
+                chan.copy_from_slice(&i16::to_le_bytes(val));
+            }
+        }
+        n_frames
+    } else {
+        0
+    };
+    let chunk = data.chunk_mut();
+    *chunk.offset_mut() = 0;
+    *chunk.stride_mut() = stride as _;
+    *chunk.size_mut() = (stride * n_frames) as _;
 }
