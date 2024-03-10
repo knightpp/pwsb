@@ -11,6 +11,11 @@ in
     buildInputs = with pkgs; [
       rustup
       pkg-config
-      alsa-lib.dev
+      pipewire.dev
+      clang
     ];
+
+    env = {
+      LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
+    };
   }
