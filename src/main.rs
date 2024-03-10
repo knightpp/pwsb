@@ -1,51 +1,95 @@
 use pipewire as pw;
-use std::{cell::Cell, rc::Rc};
+use pw::{properties::properties, spa};
+use spa::pod::Pod;
 
-fn main() {
+pub const DEFAULT_RATE: u32 = 44100;
+pub const DEFAULT_CHANNELS: u32 = 2;
+pub const DEFAULT_VOLUME: f64 = 0.7;
+pub const PI_2: f64 = std::f64::consts::PI + std::f64::consts::PI;
+pub const CHAN_SIZE: usize = std::mem::size_of::<i16>();
+
+pub fn main() -> Result<(), pw::Error> {
     pw::init();
+    let mainloop = pw::main_loop::MainLoop::new(None)?;
+    let context = pw::context::Context::new(&mainloop)?;
+    let core = context.connect(None)?;
 
-    roundtrip();
+    let data: f64 = 0.0;
 
-    unsafe { pw::deinit() };
-}
+    let stream = pw::stream::Stream::new(
+        &core,
+        "audio-src",
+        properties! {
+            *pw::keys::MEDIA_TYPE => "Audio",
+            *pw::keys::MEDIA_ROLE => "Music",
+            *pw::keys::MEDIA_CATEGORY => "Playback",
+        },
+    )?;
 
-fn roundtrip() {
-    let mainloop = pw::main_loop::MainLoop::new(None).expect("Failed to create main loop");
-    let context = pw::context::Context::new(&mainloop).expect("Failed to create context");
-    let core = context.connect(None).expect("Failed to connect to core");
-    let registry = core.get_registry().expect("Failed to get Registry");
-
-    // To comply with Rust's safety rules, we wrap this variable in an `Rc` and  a `Cell`.
-    let done = Rc::new(Cell::new(false));
-
-    // Create new reference for each variable so that they can be moved into the closure.
-    let done_clone = done.clone();
-    let loop_clone = mainloop.clone();
-
-    // Trigger the sync event. The server's answer won't be processed until we start the main loop,
-    // so we can safely do this before setting up a callback. This lets us avoid using a Cell.
-    let pending = core.sync(0).expect("sync failed");
-
-    let _listener_core = core
-        .add_listener_local()
-        .done(move |id, seq| {
-            if id == pw::core::PW_ID_CORE && seq == pending {
-                done_clone.set(true);
-                loop_clone.quit();
+    let _listener = stream
+        .add_local_listener_with_user_data(data)
+        .process(|stream, acc| match stream.dequeue_buffer() {
+            None => println!("No buffer received"),
+            Some(mut buffer) => {
+                let datas = buffer.datas_mut();
+                let stride = CHAN_SIZE * DEFAULT_CHANNELS as usize;
+                let data = &mut datas[0];
+                let n_frames = if let Some(slice) = data.data() {
+                    let n_frames = slice.len() / stride;
+                    for i in 0..n_frames {
+                        *acc += PI_2 * 440.0 / DEFAULT_RATE as f64;
+                        if *acc >= PI_2 {
+                            *acc -= PI_2
+                        }
+                        let val = (f64::sin(*acc) * DEFAULT_VOLUME * 16767.0) as i16;
+                        for c in 0..DEFAULT_CHANNELS {
+                            let start = i * stride + (c as usize * CHAN_SIZE);
+                            let end = start + CHAN_SIZE;
+                            let chan = &mut slice[start..end];
+                            chan.copy_from_slice(&i16::to_le_bytes(val));
+                        }
+                    }
+                    n_frames
+                } else {
+                    0
+                };
+                let chunk = data.chunk_mut();
+                *chunk.offset_mut() = 0;
+                *chunk.stride_mut() = stride as _;
+                *chunk.size_mut() = (stride * n_frames) as _;
             }
         })
-        .register();
-    let _listener_reg = registry
-        .add_listener_local()
-        .global(|global| {
-            println!(
-                "object: id:{} type:{}/{}",
-                global.id, global.type_, global.version
-            )
-        })
-        .register();
+        .register()?;
 
-    while !done.get() {
-        mainloop.run();
-    }
+    let mut audio_info = spa::param::audio::AudioInfoRaw::new();
+    audio_info.set_format(spa::param::audio::AudioFormat::S16LE);
+    audio_info.set_rate(DEFAULT_RATE);
+    audio_info.set_channels(DEFAULT_CHANNELS);
+
+    let values: Vec<u8> = pw::spa::pod::serialize::PodSerializer::serialize(
+        std::io::Cursor::new(Vec::new()),
+        &pw::spa::pod::Value::Object(pw::spa::pod::Object {
+            type_: pw::spa::sys::SPA_TYPE_OBJECT_Format,
+            id: pw::spa::sys::SPA_PARAM_EnumFormat,
+            properties: audio_info.into(),
+        }),
+    )
+    .unwrap()
+    .0
+    .into_inner();
+
+    let mut params = [Pod::from_bytes(&values).unwrap()];
+
+    stream.connect(
+        spa::utils::Direction::Output,
+        None,
+        pw::stream::StreamFlags::AUTOCONNECT
+            | pw::stream::StreamFlags::MAP_BUFFERS
+            | pw::stream::StreamFlags::RT_PROCESS,
+        &mut params,
+    )?;
+
+    mainloop.run();
+
+    Ok(())
 }
