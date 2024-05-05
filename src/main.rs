@@ -8,6 +8,7 @@ use player::*;
 
 mod decoder;
 use decoder::*;
+use symphonia::core::audio::{Layout, SignalSpec};
 
 #[derive(FromArgs)]
 /// pwsb - pipewire soundboard
@@ -25,7 +26,11 @@ pub fn main() -> Result<(), Box<dyn Error>> {
     pw::init();
 
     let args: Args = argh::from_env();
-    let audio = decode_file(args.file)?;
+    let audio = decode_file(
+        args.file,
+        SignalSpec::new_with_layout(DEFAULT_RATE, Layout::Stereo),
+    )
+    .expect("decode file");
 
     pipewire_play(args.target, audio)?;
 

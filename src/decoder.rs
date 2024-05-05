@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 
 use symphonia::core::{
-    audio::RawSampleBuffer,
+    audio::{RawSampleBuffer, SignalSpec},
     codecs::{DecoderOptions, CODEC_TYPE_NULL},
     formats::FormatOptions,
     io::MediaSourceStream,
@@ -9,7 +9,10 @@ use symphonia::core::{
     probe::Hint,
 };
 
-pub fn decode_file(path: PathBuf) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+pub fn decode_file(
+    path: PathBuf,
+    spec: SignalSpec,
+) -> Result<Vec<Vec<u8>>, Box<dyn std::error::Error>> {
     // Create a probe hint using the file's extension. [Optional]
     let mut hint = Hint::new();
     if let Some(ext) = path.extension() {
@@ -57,10 +60,15 @@ pub fn decode_file(path: PathBuf) -> Result<Vec<u8>, Box<dyn std::error::Error>>
     // Store the track identifier, it will be used to filter packets.
     let track_id = track.id;
 
+    let mut result = Vec::new();
     // The decode loop.
     loop {
         // Get the next packet from the media format.
-        let packet = format.next_packet()?;
+        let packet = match format.next_packet() {
+            Ok(p) => p,
+            Err(symphonia::core::errors::Error::IoError(_)) => return Ok(result),
+            Err(err) => return Err(err.into()),
+        };
 
         // Consume any new metadata that has been read since the last packet.
         while !format.metadata().is_latest() {
@@ -77,16 +85,14 @@ pub fn decode_file(path: PathBuf) -> Result<Vec<u8>, Box<dyn std::error::Error>>
         // Decode the packet into audio samples.
         match decoder.decode(&packet) {
             Ok(decoded) => {
-                println!("decoded");
-
                 // Create a raw sample buffer that matches the parameters of the decoded audio buffer.
-                let mut byte_buf =
-                    RawSampleBuffer::<f32>::new(decoded.capacity() as u64, *decoded.spec());
+                let mut sample_buf = RawSampleBuffer::<f32>::new(decoded.capacity() as u64, spec);
 
                 // Copy the contents of the decoded audio buffer into the sample buffer whilst performing
                 // any required conversions.
-                byte_buf.copy_interleaved_ref(decoded);
-                return Ok(byte_buf.as_bytes().to_owned());
+                sample_buf.copy_interleaved_ref(decoded);
+
+                result.push(sample_buf.as_bytes().to_owned());
             }
             Err(symphonia::core::errors::Error::IoError(_)) => {
                 // The packet failed to decode due to an IO error, skip the packet.
