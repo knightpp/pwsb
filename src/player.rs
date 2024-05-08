@@ -1,3 +1,4 @@
+use anyhow::{Context, Result};
 use pipewire as pw;
 use pw::{properties::properties, spa};
 use spa::pod::Pod;
@@ -7,7 +8,7 @@ pub const DEFAULT_CHANNELS: u32 = 2;
 
 pub struct Terminate;
 
-pub fn pipewire_play(target: Option<String>, samples: Vec<Vec<u8>>) -> Result<(), pw::Error> {
+pub fn pipewire_play(target: Option<String>, samples: Vec<Vec<u8>>) -> Result<()> {
     let (pw_sender, pw_receiver) = pipewire::channel::channel::<Terminate>();
 
     let mainloop = pw::main_loop::MainLoop::new(None)?;
@@ -75,11 +76,11 @@ pub fn pipewire_play(target: Option<String>, samples: Vec<Vec<u8>>) -> Result<()
             properties: audio_info.into(),
         }),
     )
-    .unwrap()
+    .context("serialize pod info")?
     .0
     .into_inner();
 
-    let mut params = [Pod::from_bytes(&values).unwrap()];
+    let mut params = [Pod::from_bytes(&values).context("parse pod info")?];
 
     stream.connect(
         spa::utils::Direction::Output,

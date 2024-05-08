@@ -1,5 +1,6 @@
-use std::{error::Error, path::PathBuf};
+use std::path::PathBuf;
 
+use anyhow::{Context, Result};
 use argh::FromArgs;
 use pipewire as pw;
 
@@ -22,7 +23,7 @@ struct Args {
     target: Option<String>,
 }
 
-pub fn main() -> Result<(), Box<dyn Error>> {
+pub fn main() -> Result<()> {
     pw::init();
 
     let args: Args = argh::from_env();
@@ -30,9 +31,9 @@ pub fn main() -> Result<(), Box<dyn Error>> {
         args.file,
         SignalSpec::new_with_layout(DEFAULT_RATE, Layout::Stereo),
     )
-    .expect("decode file");
+    .context("decode file")?;
 
-    pipewire_play(args.target, audio)?;
+    pipewire_play(args.target, audio).context("play audio")?;
 
     Ok(())
 }
