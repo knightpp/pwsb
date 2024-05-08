@@ -12,6 +12,7 @@ repository = "https://github.com/knightpp/pwsb"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = "1.0.83"
 argh = "0.1.12"
 pipewire = { version = "0.8.0", features = ["v0_3_77"] }
 symphonia = { version = "0.5.4", features = ["opt-simd", "mp3"] }
